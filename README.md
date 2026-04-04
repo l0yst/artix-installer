@@ -19,7 +19,8 @@ A simple, interactive bash installer for Artix Linux with dinit.
 Boot the Artix live ISO, connect to the internet, then:
 ```bash
 curl -O https://raw.githubusercontent.com/l0yst/artix-installer/main/artix-installer.sh
-artix-installer.sh
+sudo chmod +x artix-installer.sh
+bash artix-installer.sh
 ```
 
 ## Notes
