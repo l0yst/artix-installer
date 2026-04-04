@@ -77,6 +77,8 @@ echo ""
 info "Checking internet connection..."
 if ping -c 2 -W 3 artixlinux.org &>/dev/null; then
     success "Internet is working."
+    info "Starting NTP time sync..."
+    dinitctl start ntpd &>/dev/null && success "NTP started." || warn "NTP failed to start, continuing anyway."
 else
     error "No internet detected."
     warn "Please connect manually using connmanctl before running this script."
@@ -281,6 +283,13 @@ echo "KEYMAP=${KEYMAP}" > /etc/vconsole.conf
 
 # Hostname
 echo "${HOSTNAME}" > /etc/hostname
+
+# Hosts file
+cat > /etc/hosts <<EOF
+127.0.0.1    localhost
+::1          localhost
+127.0.1.1    ${HOSTNAME}.localdomain  ${HOSTNAME}
+EOF
 
 # Root password
 echo "root:${ROOT_PASS}" | chpasswd
