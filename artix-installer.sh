@@ -63,6 +63,47 @@ run_step() {
 }
 
 # ─────────────────────────────────────────────
+# Timezone picker — two-step drill down
+pick_timezone() {
+    local tz=""
+    while true; do
+        echo ""
+        echo "Enter timezone. Examples: Asia/Karachi, Europe/London, America/New_York"
+        echo "Press Enter to browse regions."
+        read -rp "Timezone: " tz
+
+        # Empty — show regions
+        if [ -z "$tz" ]; then
+            echo ""
+            info "Available regions:"
+            ls /usr/share/zoneinfo/ | grep -v '[.]' | column
+            echo ""
+            read -rp "Enter region (e.g. Asia): " region
+            if [ -d "/usr/share/zoneinfo/$region" ]; then
+                echo ""
+                info "Cities in $region:"
+                ls "/usr/share/zoneinfo/$region" | column
+                echo ""
+                read -rp "Enter full timezone (e.g. $region/Karachi): " tz
+            else
+                error "Region '$region' not found. Try again."
+                continue
+            fi
+        fi
+
+        # Validate
+        if [ -f "/usr/share/zoneinfo/$tz" ]; then
+            TIMEZONE="$tz"
+            success "Timezone set to $TIMEZONE"
+            break
+        else
+            error "Invalid timezone: '$tz'"
+            echo "Hint: format is Region/City e.g. Asia/Karachi"
+        fi
+    done
+}
+
+# ─────────────────────────────────────────────
 # STEP 1 — Internet check
 
 echo ""
@@ -204,21 +245,7 @@ echo ""
 info "Gathering system configuration..."
 echo ""
 
-# Timezone — no default, validate against real zoneinfo files
-echo "Enter your timezone (e.g. Asia/Karachi, Europe/London, America/New_York)"
-echo "Press Enter to list available regions first."
-read -rp "Timezone: " TIMEZONE
-if [ -z "$TIMEZONE" ]; then
-    ls /usr/share/zoneinfo/
-    echo ""
-    read -rp "Timezone: " TIMEZONE
-fi
-while [ ! -f "/usr/share/zoneinfo/$TIMEZONE" ]; do
-    error "Invalid timezone: '$TIMEZONE'"
-    echo "Hint: format is Region/City e.g. Asia/Karachi"
-    read -rp "Timezone: " TIMEZONE
-done
-success "Timezone set to $TIMEZONE"
+pick_timezone
 
 ask LOCALE "Locale" "en_US.UTF-8"
 ask KEYMAP "Keyboard layout" "us"
@@ -297,13 +324,12 @@ info "Detected kernel: $KERNEL"
 
 # ─────────────────────────────────────────────
 # STEP 13 — Write chroot script and execute it
-# Using a temp script file avoids heredoc variable expansion issues
 
 info "Writing chroot setup script..."
 
 cat >/mnt/artix-chroot-setup.sh <<SCRIPT
 #!/bin/bash
-set -e
+# No set -e — we handle errors per step to avoid retry duplication issues
 
 echo "[1/9] Setting timezone..."
 ln -sf /usr/share/zoneinfo/${TIMEZONE} /etc/localtime
@@ -311,7 +337,9 @@ hwclock --systohc
 dinitctl start ntpd 2>/dev/null || true
 
 echo "[2/9] Setting locale..."
-sed -i 's/^#${LOCALE} UTF-8/${LOCALE} UTF-8/' /etc/locale.gen
+if ! grep -q "^${LOCALE} UTF-8" /etc/locale.gen; then
+    sed -i 's/^#${LOCALE} UTF-8/${LOCALE} UTF-8/' /etc/locale.gen
+fi
 locale-gen
 echo "LANG=${LOCALE}" > /etc/locale.conf
 
@@ -324,34 +352,51 @@ printf '127.0.0.1\tlocalhost\n::1\t\tlocalhost\n127.0.1.1\t${HOSTNAME}.localdoma
 
 echo "[5/9] Setting passwords and creating user..."
 echo "root:${ROOT_PASS}" | chpasswd
-useradd -m -G wheel -s /bin/bash "${USERNAME}"
+if ! id "${USERNAME}" &>/dev/null; then
+    useradd -m -G wheel -s /bin/bash "${USERNAME}"
+    echo "  user ${USERNAME} created."
+else
+    echo "  user ${USERNAME} already exists, skipping useradd."
+fi
 echo "${USERNAME}:${USER_PASS}" | chpasswd
 
 echo "[6/9] Configuring sudo..."
 if pacman -Qq sudo &>/dev/null; then
-    sed -i 's/^# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers
-    echo "  wheel group enabled."
+    if ! grep -q "^%wheel ALL=(ALL:ALL) ALL" /etc/sudoers; then
+        sed -i 's/^# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers
+        echo "  wheel group enabled."
+    else
+        echo "  wheel already enabled, skipping."
+    fi
 else
     echo "  sudo not installed, skipping."
 fi
 
 echo "[7/9] Installing post-install packages..."
 if [ -n "${POST_PKGS}" ]; then
-    pacman -S --noconfirm ${POST_PKGS}
+    pacman -S --noconfirm --needed ${POST_PKGS}
 else
     echo "  none specified, skipping."
 fi
 
 echo "[8/9] Multilib and services..."
 if [ "${ENABLE_MULTILIB}" = "true" ]; then
-    sed -i '/^#\[multilib\]/{s/^#//; n; s/^#Include/Include/}' /etc/pacman.conf
+    if ! grep -q "^\[multilib\]" /etc/pacman.conf; then
+        sed -i '/^#\[multilib\]/{s/^#//; n; s/^#Include/Include/}' /etc/pacman.conf
+        echo "  multilib enabled."
+    else
+        echo "  multilib already enabled, skipping."
+    fi
     pacman -Sy
-    echo "  multilib enabled."
 fi
 
 if pacman -Qq networkmanager &>/dev/null; then
-    ln -sf /etc/dinit.d/NetworkManager /etc/dinit.d/boot.d/NetworkManager
-    echo "  NetworkManager dinit symlink created."
+    if [ ! -L /etc/dinit.d/boot.d/NetworkManager ]; then
+        ln -sf /etc/dinit.d/NetworkManager /etc/dinit.d/boot.d/NetworkManager
+        echo "  NetworkManager dinit symlink created."
+    else
+        echo "  NetworkManager symlink already exists, skipping."
+    fi
 fi
 
 echo "[9/9] Installing Limine bootloader..."
