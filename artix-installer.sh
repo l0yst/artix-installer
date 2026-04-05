@@ -15,13 +15,12 @@ NC='\033[0m'
 # ─────────────────────────────────────────────
 # Helpers
 
-info()    { echo -e "${CYAN}${BOLD}[INFO]${NC} $1"; }
+info() { echo -e "${CYAN}${BOLD}[INFO]${NC} $1"; }
 success() { echo -e "${GREEN}${BOLD}[OK]${NC} $1"; }
-warn()    { echo -e "${YELLOW}${BOLD}[WARN]${NC} $1"; }
-error()   { echo -e "${RED}${BOLD}[ERROR]${NC} $1"; }
+warn() { echo -e "${YELLOW}${BOLD}[WARN]${NC} $1"; }
+error() { echo -e "${RED}${BOLD}[ERROR]${NC} $1"; }
 
 ask() {
-    # ask <variable_name> <prompt> [default]
     local varname="$1"
     local prompt="$2"
     local default="$3"
@@ -35,7 +34,6 @@ ask() {
 }
 
 ask_yn() {
-    # ask_yn <prompt> <default y|n>
     local prompt="$1"
     local default="$2"
     local input
@@ -45,7 +43,6 @@ ask_yn() {
 }
 
 run_step() {
-    # run_step <description> <command>
     local desc="$1"
     shift
     while true; do
@@ -118,7 +115,25 @@ if ! ask_yn "Does this look correct?" "y"; then
 fi
 
 # ─────────────────────────────────────────────
-# STEP 4 — Format partitions
+# STEP 4 — Clean up any existing mounts
+
+echo ""
+info "Cleaning up any existing mounts before formatting..."
+
+if [ -n "$SWAP_PART" ] && swapon --show | grep -q "$SWAP_PART"; then
+    warn "Swap $SWAP_PART already active, deactivating..."
+    swapoff "$SWAP_PART" || warn "Could not deactivate swap, continuing."
+fi
+
+if mountpoint -q /mnt; then
+    warn "/mnt is already mounted, unmounting..."
+    umount -R /mnt || warn "Could not unmount /mnt cleanly, continuing."
+fi
+
+success "Mount cleanup done."
+
+# ─────────────────────────────────────────────
+# STEP 5 — Format partitions
 
 echo ""
 info "Formatting partitions..."
@@ -134,7 +149,7 @@ else
 fi
 
 # ─────────────────────────────────────────────
-# STEP 5 — Mount partitions
+# STEP 6 — Mount partitions
 
 echo ""
 info "Mounting partitions..."
@@ -144,10 +159,10 @@ run_step "Create /mnt/boot" mkdir -p /mnt/boot
 run_step "Mount boot partition" mount "$BOOT_PART" /mnt/boot
 
 # ─────────────────────────────────────────────
-# STEP 6 — Package selection
+# STEP 7 — Package selection
 
 echo ""
-DEFAULT_PKGS="base base-devel dinit elogind-dinit linux-zen linux-zen-headers linux-firmware limine efibootmgr nano"
+DEFAULT_PKGS="base base-devel dinit elogind-dinit linux-zen linux-firmware limine efibootmgr"
 warn "Default packages: $DEFAULT_PKGS"
 echo ""
 echo "Press Enter to use defaults, or type your own list (this REPLACES the defaults):"
@@ -165,7 +180,7 @@ fi
 PACKAGES="${USER_PKGS:-$DEFAULT_PKGS}"
 
 # ─────────────────────────────────────────────
-# STEP 7 — basestrap
+# STEP 8 — basestrap
 
 echo ""
 info "Installing packages with basestrap..."
@@ -175,7 +190,7 @@ echo ""
 run_step "basestrap /mnt" basestrap /mnt $PACKAGES
 
 # ─────────────────────────────────────────────
-# STEP 8 — fstab
+# STEP 9 — fstab
 
 echo ""
 run_step "Generate fstab" bash -c "fstabgen -U /mnt >> /mnt/etc/fstab"
@@ -183,17 +198,32 @@ info "fstab contents:"
 cat /mnt/etc/fstab
 
 # ─────────────────────────────────────────────
-# STEP 9 — System config (inside chroot via heredoc)
+# STEP 10 — Gather system config BEFORE entering chroot
 
 echo ""
 info "Gathering system configuration..."
 echo ""
 
-ask TIMEZONE   "Timezone"        "Asia/Baghdad"
-ask LOCALE     "Locale"          "en_US.UTF-8"
-ask KEYMAP     "Keyboard layout" "us"
-ask HOSTNAME   "Hostname"        "artix"
-ask USERNAME  "Username" ""
+# Timezone — no default, validate against real zoneinfo files
+echo "Enter your timezone (e.g. Asia/Karachi, Europe/London, America/New_York)"
+echo "Press Enter to list available regions first."
+read -rp "Timezone: " TIMEZONE
+if [ -z "$TIMEZONE" ]; then
+    ls /usr/share/zoneinfo/
+    echo ""
+    read -rp "Timezone: " TIMEZONE
+fi
+while [ ! -f "/usr/share/zoneinfo/$TIMEZONE" ]; do
+    error "Invalid timezone: '$TIMEZONE'"
+    echo "Hint: format is Region/City e.g. Asia/Karachi"
+    read -rp "Timezone: " TIMEZONE
+done
+success "Timezone set to $TIMEZONE"
+
+ask LOCALE "Locale" "en_US.UTF-8"
+ask KEYMAP "Keyboard layout" "us"
+ask HOSTNAME "Hostname" "artix"
+ask USERNAME "Username" ""
 
 while [ -z "$USERNAME" ]; do
     warn "Username cannot be empty."
@@ -213,6 +243,7 @@ while [ "$ROOT_PASS" != "$ROOT_PASS2" ]; do
     read -rsp "Confirm root password: " ROOT_PASS2
     echo ""
 done
+success "Root password set."
 
 echo ""
 info "Set password for user $USERNAME:"
@@ -227,20 +258,21 @@ while [ "$USER_PASS" != "$USER_PASS2" ]; do
     read -rsp "Confirm user password: " USER_PASS2
     echo ""
 done
+success "User password set."
 
 # ─────────────────────────────────────────────
-# STEP 10 — Post-install packages
+# STEP 11 — Post-install packages
 
 echo ""
-info "Post-install packages (e.g. networkmanager sudo git)"
+info "Post-install packages (e.g. networkmanager networkmanager-dinit git)"
 info "Leave blank to skip."
 read -rp "Post-install packages: " POST_PKGS
 
 # ─────────────────────────────────────────────
-# STEP 10b — Multilib
+# STEP 12 — Multilib
 
 echo ""
-if ask_yn "Enable multilib repository? (needed for 32-bit software like Steam, Wine)" "n"; then
+if ask_yn "Enable multilib repository?" "n"; then
     ENABLE_MULTILIB=true
     info "Multilib will be enabled."
 else
@@ -249,7 +281,7 @@ else
 fi
 
 # ─────────────────────────────────────────────
-# Detect kernel for limine.conf
+# Detect kernel
 
 if echo "$PACKAGES" | grep -qw "linux-zen"; then
     KERNEL="linux-zen"
@@ -259,92 +291,101 @@ else
     KERNEL="linux"
 fi
 
+VMLINUZ="vmlinuz-${KERNEL}"
+INITRAMFS="initramfs-${KERNEL}.img"
 info "Detected kernel: $KERNEL"
 
 # ─────────────────────────────────────────────
-# STEP 11 + 12 — chroot script
+# STEP 13 — Write chroot script and execute it
+# Using a temp script file avoids heredoc variable expansion issues
 
-info "Entering chroot to configure system..."
+info "Writing chroot setup script..."
 
-artix-chroot /mnt /bin/bash <<CHROOT
+cat >/mnt/artix-chroot-setup.sh <<SCRIPT
+#!/bin/bash
 set -e
 
-# Timezone
+echo "[1/9] Setting timezone..."
 ln -sf /usr/share/zoneinfo/${TIMEZONE} /etc/localtime
 hwclock --systohc
+dinitctl start ntpd 2>/dev/null || true
 
-# Locale
-sed -i "s/^#${LOCALE} UTF-8/${LOCALE} UTF-8/" /etc/locale.gen
+echo "[2/9] Setting locale..."
+sed -i 's/^#${LOCALE} UTF-8/${LOCALE} UTF-8/' /etc/locale.gen
 locale-gen
 echo "LANG=${LOCALE}" > /etc/locale.conf
 
-# Keyboard layout
+echo "[3/9] Setting keymap..."
 echo "KEYMAP=${KEYMAP}" > /etc/vconsole.conf
 
-# Hostname
+echo "[4/9] Setting hostname and hosts..."
 echo "${HOSTNAME}" > /etc/hostname
+printf '127.0.0.1\tlocalhost\n::1\t\tlocalhost\n127.0.1.1\t${HOSTNAME}.localdomain ${HOSTNAME}\n' > /etc/hosts
 
-# Hosts file
-cat > /etc/hosts <<EOF
-127.0.0.1    localhost
-::1          localhost
-127.0.1.1    ${HOSTNAME}.localdomain  ${HOSTNAME}
-EOF
-
-# Root password
+echo "[5/9] Setting passwords and creating user..."
 echo "root:${ROOT_PASS}" | chpasswd
-
-# User
 useradd -m -G wheel -s /bin/bash "${USERNAME}"
 echo "${USERNAME}:${USER_PASS}" | chpasswd
 
-# Sudo — auto configure wheel if sudo is installed
-if command -v sudo &>/dev/null || pacman -Qq sudo &>/dev/null 2>&1; then
+echo "[6/9] Configuring sudo..."
+if pacman -Qq sudo &>/dev/null; then
     sed -i 's/^# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers
-    echo "[sudo] wheel group enabled."
+    echo "  wheel group enabled."
+else
+    echo "  sudo not installed, skipping."
 fi
 
-# Post-install packages
+echo "[7/9] Installing post-install packages..."
 if [ -n "${POST_PKGS}" ]; then
     pacman -S --noconfirm ${POST_PKGS}
+else
+    echo "  none specified, skipping."
 fi
 
-# Multilib
+echo "[8/9] Multilib and services..."
 if [ "${ENABLE_MULTILIB}" = "true" ]; then
     sed -i '/^#\[multilib\]/{s/^#//; n; s/^#Include/Include/}' /etc/pacman.conf
     pacman -Sy
-    echo "[multilib] Enabled and synced."
+    echo "  multilib enabled."
 fi
 
-# NetworkManager dinit symlink — auto if installed
-if pacman -Qq networkmanager &>/dev/null 2>&1; then
+if pacman -Qq networkmanager &>/dev/null; then
     ln -sf /etc/dinit.d/NetworkManager /etc/dinit.d/boot.d/NetworkManager
-    echo "[dinit] NetworkManager enabled."
+    echo "  NetworkManager dinit symlink created."
 fi
 
-# Limine bootloader
+echo "[9/9] Installing Limine bootloader..."
 mkdir -p /boot/EFI/BOOT
 cp /usr/share/limine/BOOTX64.EFI /boot/EFI/BOOT/
 
-cat > /boot/limine.conf <<EOF
+cat > /boot/limine.conf << 'LIMINEEOF'
 timeout: 5
 
 /Artix Linux
     protocol: linux
-    path: boot():/${KERNEL == "linux" ? "vmlinuz-linux" : "vmlinuz-${KERNEL}"}
-    module_path: boot():/initramfs-${KERNEL}.img
-    cmdline: root=${ROOT_PART} rw quiet
-EOF
+    path: boot():/VMLINUZ_PLACEHOLDER
+    module_path: boot():/INITRAMFS_PLACEHOLDER
+    cmdline: root=ROOT_PLACEHOLDER rw quiet
+LIMINEEOF
 
-echo "[limine] Config written for kernel: ${KERNEL}"
-echo "[limine] BOOTX64.EFI deployed."
+sed -i "s|VMLINUZ_PLACEHOLDER|${VMLINUZ}|" /boot/limine.conf
+sed -i "s|INITRAMFS_PLACEHOLDER|${INITRAMFS}|" /boot/limine.conf
+sed -i "s|ROOT_PLACEHOLDER|${ROOT_PART}|" /boot/limine.conf
 
 echo ""
-echo "Chroot configuration complete."
-CHROOT
+echo "  limine.conf:"
+cat /boot/limine.conf
+
+echo ""
+echo "Chroot setup complete."
+SCRIPT
+
+chmod +x /mnt/artix-chroot-setup.sh
+run_step "Configure system in chroot" artix-chroot /mnt /artix-chroot-setup.sh
+rm -f /mnt/artix-chroot-setup.sh
 
 # ─────────────────────────────────────────────
-# STEP 13 — Unmount
+# STEP 14 — Unmount
 
 echo ""
 run_step "Unmount all partitions" umount -R /mnt

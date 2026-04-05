@@ -28,3 +28,14 @@ bash artix-installer.sh
 - You must partition your disk manually before running
 - WiFi on the live ISO must be connected manually via connmanctl or any other wifi options in artix iso 
 - Real hardware and VMs both supported
+
+## Bugs
+
+- Default values for some options are n 
+- if the scrpt fails and the user runs again the swap part fails cause it aleady ussed or mounted
+- if any disk partition is already mounted it fails to format and mount
+- change default basestrap packages
+- should run the ntp too after timezone is set
+- the default timezone should be none and it should show the list of timzone if user ask like (Timezone? press / to search timzone)
+- after it ask me for info about post packages it does just prints and echos the msgs and does not apply these things and shows everytign done wnat to reboot and i get broken system after that
+- since it gives many errors on mount make sure to add option or see if there are alreay mounted if they are then dont mount the disk or better remove all mounted drives then mount
