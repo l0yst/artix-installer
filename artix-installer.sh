@@ -97,105 +97,105 @@ fi
 # ─────────────────────────────────────────────
 # STEP 3 — Partition names
 
-echo ""
-info "Enter your partition names."
-ask BOOT_PART "Boot/EFI partition" "/dev/vda1"
-ask SWAP_PART "Swap partition (leave blank to skip)" ""
-ask ROOT_PART "Root partition" "/dev/vda3"
-
-echo ""
-info "Partition summary:"
-echo "  Boot : $BOOT_PART"
-echo "  Swap : ${SWAP_PART:-none}"
-echo "  Root : $ROOT_PART"
-echo ""
-if ! ask_yn "Does this look correct?" "y"; then
-    error "Aborted. Re-run the script and enter correct partition names."
-    exit 1
-fi
-
-# ─────────────────────────────────────────────
-# STEP 4 — Clean up any existing mounts
-
-echo ""
-info "Cleaning up any existing mounts before formatting..."
-
-if [ -n "$SWAP_PART" ] && swapon --show | grep -q "$SWAP_PART"; then
-    warn "Swap $SWAP_PART already active, deactivating..."
-    swapoff "$SWAP_PART" || warn "Could not deactivate swap, continuing."
-fi
-
-if mountpoint -q /mnt; then
-    warn "/mnt is already mounted, unmounting..."
-    umount -R /mnt || warn "Could not unmount /mnt cleanly, continuing."
-fi
-
-success "Mount cleanup done."
-
-# ─────────────────────────────────────────────
-# STEP 5 — Format partitions
-
-echo ""
-info "Formatting partitions..."
-
-run_step "Format EFI partition (FAT32)" mkfs.fat -F32 "$BOOT_PART"
-run_step "Format root partition (ext4)" mkfs.ext4 -F "$ROOT_PART"
-
-if [ -n "$SWAP_PART" ]; then
-    run_step "Format swap" mkswap "$SWAP_PART"
-    run_step "Enable swap" swapon "$SWAP_PART"
-else
-    info "Swap skipped."
-fi
-
-# ─────────────────────────────────────────────
-# STEP 6 — Mount partitions
-
-echo ""
-info "Mounting partitions..."
-
-run_step "Mount root partition" mount "$ROOT_PART" /mnt
-run_step "Create /mnt/boot" mkdir -p /mnt/boot
-run_step "Mount boot partition" mount "$BOOT_PART" /mnt/boot
-
-# ─────────────────────────────────────────────
-# STEP 7 — Package selection
-
-echo ""
-DEFAULT_PKGS="base base-devel dinit elogind-dinit linux-zen linux-firmware limine efibootmgr"
-warn "Default packages: $DEFAULT_PKGS"
-echo ""
-echo "Press Enter to use defaults, or type your own list (this REPLACES the defaults):"
-read -rp "Packages: " USER_PKGS
-
-if [ -n "$USER_PKGS" ]; then
-    warn "WARNING: Default packages have been overwritten."
-    warn "You entered: $USER_PKGS"
-    if ! ask_yn "Are you sure you want to use your custom list?" "y"; then
-        USER_PKGS=""
-        info "Falling back to defaults."
-    fi
-fi
-
-PACKAGES="${USER_PKGS:-$DEFAULT_PKGS}"
-
-# ─────────────────────────────────────────────
-# STEP 8 — basestrap
-
-echo ""
-info "Installing packages with basestrap..."
-info "Packages: $PACKAGES"
-echo ""
-
-run_step "basestrap /mnt" basestrap /mnt $PACKAGES
-
-# ─────────────────────────────────────────────
-# STEP 9 — fstab
-
-echo ""
-run_step "Generate fstab" bash -c "fstabgen -U /mnt >> /mnt/etc/fstab"
-info "fstab contents:"
-cat /mnt/etc/fstab
+# echo ""
+# info "Enter your partition names."
+# ask BOOT_PART "Boot/EFI partition" "/dev/vda1"
+# ask SWAP_PART "Swap partition (leave blank to skip)" ""
+# ask ROOT_PART "Root partition" "/dev/vda3"
+#
+# echo ""
+# info "Partition summary:"
+# echo "  Boot : $BOOT_PART"
+# echo "  Swap : ${SWAP_PART:-none}"
+# echo "  Root : $ROOT_PART"
+# echo ""
+# if ! ask_yn "Does this look correct?" "y"; then
+#     error "Aborted. Re-run the script and enter correct partition names."
+#     exit 1
+# fi
+#
+# # ─────────────────────────────────────────────
+# # STEP 4 — Clean up any existing mounts
+#
+# echo ""
+# info "Cleaning up any existing mounts before formatting..."
+#
+# if [ -n "$SWAP_PART" ] && swapon --show | grep -q "$SWAP_PART"; then
+#     warn "Swap $SWAP_PART already active, deactivating..."
+#     swapoff "$SWAP_PART" || warn "Could not deactivate swap, continuing."
+# fi
+#
+# if mountpoint -q /mnt; then
+#     warn "/mnt is already mounted, unmounting..."
+#     umount -R /mnt || warn "Could not unmount /mnt cleanly, continuing."
+# fi
+#
+# success "Mount cleanup done."
+#
+# # ─────────────────────────────────────────────
+# # STEP 5 — Format partitions
+#
+# echo ""
+# info "Formatting partitions..."
+#
+# run_step "Format EFI partition (FAT32)" mkfs.fat -F32 "$BOOT_PART"
+# run_step "Format root partition (ext4)" mkfs.ext4 -F "$ROOT_PART"
+#
+# if [ -n "$SWAP_PART" ]; then
+#     run_step "Format swap" mkswap "$SWAP_PART"
+#     run_step "Enable swap" swapon "$SWAP_PART"
+# else
+#     info "Swap skipped."
+# fi
+#
+# # ─────────────────────────────────────────────
+# # STEP 6 — Mount partitions
+#
+# echo ""
+# info "Mounting partitions..."
+#
+# run_step "Mount root partition" mount "$ROOT_PART" /mnt
+# run_step "Create /mnt/boot" mkdir -p /mnt/boot
+# run_step "Mount boot partition" mount "$BOOT_PART" /mnt/boot
+#
+# # ─────────────────────────────────────────────
+# # STEP 7 — Package selection
+#
+# echo ""
+# DEFAULT_PKGS="base base-devel dinit elogind-dinit linux-zen linux-firmware limine efibootmgr"
+# warn "Default packages: $DEFAULT_PKGS"
+# echo ""
+# echo "Press Enter to use defaults, or type your own list (this REPLACES the defaults):"
+# read -rp "Packages: " USER_PKGS
+#
+# if [ -n "$USER_PKGS" ]; then
+#     warn "WARNING: Default packages have been overwritten."
+#     warn "You entered: $USER_PKGS"
+#     if ! ask_yn "Are you sure you want to use your custom list?" "y"; then
+#         USER_PKGS=""
+#         info "Falling back to defaults."
+#     fi
+# fi
+#
+# PACKAGES="${USER_PKGS:-$DEFAULT_PKGS}"
+#
+# # ─────────────────────────────────────────────
+# # STEP 8 — basestrap
+#
+# echo ""
+# info "Installing packages with basestrap..."
+# info "Packages: $PACKAGES"
+# echo ""
+#
+# run_step "basestrap /mnt" basestrap /mnt $PACKAGES
+#
+# # ─────────────────────────────────────────────
+# # STEP 9 — fstab
+#
+# echo ""
+# run_step "Generate fstab" bash -c "fstabgen -U /mnt >> /mnt/etc/fstab"
+# info "fstab contents:"
+# cat /mnt/etc/fstab
 
 # ─────────────────────────────────────────────
 # STEP 10 — Gather system config BEFORE entering chroot
